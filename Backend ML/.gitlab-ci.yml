@@ -1,0 +1,78 @@
+image: docker:python:3.7-slim-stretch
+
+stages:
+  - test
+  - deploy
+  
+test:
+  stage: test
+  before_script:
+   - echo "Before Test"
+   - sudo apt-get install python3-dev gcc  
+   - cd src
+   - mkdir files
+   - cd AIAGeneration/Darknet
+   - mkdir src_darknet
+   - cd src_darknet 
+   - git clone https://github.com/AlexeyAB/darknet.git
+   - cd darknet
+   - sed -i 's/LIBSO=0/LIBSO=1/g' Makefile
+   #- sed -i 's/AVX=0/AVX=1/g' Makefile
+   #- sed -i 's/OPENMP=0/OPENMP=1/g' Makefile
+   - make &>/dev/null
+   - rm ../../libdarknet.so
+   - mv libdarknet.so ../../libdarknet.so
+   - cd ../../
+   - rm -R src_darknet
+   - wget -O NewDatasetYolov3_18000.weights https://arquivos.ufsc.br/f/c3877f45c0ca4be58dd8/?dl=1
+   - python3 genMeta.py
+   - cd ../../../
+   - chmod 777 install_dependencies.sh
+   - ./install_dependencies.sh &>/dev/null
+
+  script:
+   - echo "Test"
+   - curl --fail 150.162.6.91:4555/stopserver && echo "SUCCESS!" || echo "ERROR!"
+   - echo "Starting NEW DEV server"
+   - chmod 777 run.sh
+   - nohup ./run.sh &>/dev/null &
+   - echo "DONE!"
+   - echo "Access http://devgqs.ufsc.br:4555 for testing"
+
+  environment:
+    name: staging
+    url: http://devgqs.ufsc.br:4555
+    on_stop: stop_test
+
+  only:
+   - dev
+  
+deploy:
+  stage: deploy
+  before_script:
+   - sudo apt-get install sshpass
+
+  script:
+   - echo "Connecting to production server"
+   - sudo sshpass -p $PRD_PW ssh "$PRD_US"@150.162.6.127 "cd /opt/sketch2aia; sudo ./deploy.sh"
+   - echo "Deploy DONE!"
+   - echo "Access http://apps.computacaonaescola.ufsc.br:4555 for production"
+
+  environment:
+    name: production
+    url: http://apps.computacaonaescola.ufsc.br:4555
+    
+  only:
+   - master
+
+stop_test:
+  stage: test
+  variables:
+    GIT_STRATEGY: none
+  script:
+    - curl --fail 150.162.6.91:4555/stopserver && echo "SUCCESS!" || echo "ERROR!"
+  when: manual
+  environment:
+    name: staging
+    action: stop
+
